@@ -116,6 +116,55 @@
   }
   return best;
  }
+ // Single-instant counterpart to assessWindow. Keep the exterior window point
+ // separate from the indoor eye: a sunlit window does not imply a sunlit eye.
+ function assessMoment({date,window,obstacles=[],hour=12,minute=0,lat=defaults.lat,lon=defaults.lon,utcOffset=defaults.utcOffset}){
+  if(!date)throw new TypeError('date is required');
+  const w=windowGeometry(window),sun=sunPosition({...date,hour,minute,lat,lon,utcOffset}),d=sun.direction;
+  const front=sun.elevation>0&&d.x*w.normal.x+d.z*w.normal.z>EPS;
+  const exteriorOrigin={x:w.x+w.normal.x*.02,y:w.y,z:w.z+w.normal.z*.02};
+  const exteriorBlocker=front?firstBlocker(exteriorOrigin,d,obstacles):null;
+  const aperture=apertureRay(w,d),blocker=aperture.passes?firstBlocker(aperture.origin,d,obstacles):null;
+  const point=aperture.passes&&!blocker;
+  return {sun,front,exterior:front&&!exteriorBlocker,point,reason:point?'direct':blocker?'building':aperture.reason,blocker,exteriorBlocker,aperture};
+ }
+ // Illustrative floor zone for the SELECTED opening only, not a reconstruction
+ // of a real room. Trace each floor point through the SAME fixed aperture. In
+ // particular, do not translate the aperture when sampling lateral positions.
+ function sampleFloorPatch({window,sun,direction,obstacles=[],width=4,depth=4,columns=20,rows=20}){
+  const w=windowGeometry(window),d=direction||sun?.direction;
+  if(!d)throw new TypeError('sun or direction is required');
+  for(const k of ['x','y','z'])finite(d[k],'direction.'+k);
+  finite(width,'floor width');finite(depth,'floor depth');
+  if(width<=0||depth<=0||!Number.isInteger(columns)||!Number.isInteger(rows)||columns<1||rows<1||columns*rows>10000)throw new RangeError('Invalid floor sampling dimensions');
+  const magnitude=Math.hypot(d.x,d.y,d.z);
+  if(magnitude<EPS)throw new RangeError('Nonzero sun direction required');
+  const n=w.normal,t=w.tangent,normalDot=d.x*n.x+d.z*n.z;
+  const bottom=w.floorY+w.sill,top=bottom+w.height,cellWidth=width/columns,cellDepth=depth/rows;
+  const cells=[];let litCount=0;
+  for(let row=0;row<rows;row++)for(let column=0;column<columns;column++){
+   const lateral=-width/2+(column+.5)*cellWidth,inset=(row+.5)*cellDepth;
+   let lit=false;
+   // Points in the wall return are not occupied interior floor.
+   if(d.y>EPS&&normalDot>EPS&&inset>w.wallDepth){
+    const point={x:w.x+t.x*lateral-n.x*inset,y:w.floorY+.02,z:w.z+t.z*lateral-n.z*inset};
+    const outerT=inset/normalDot,innerT=(inset-w.wallDepth)/normalDot;
+    const hit={x:point.x+d.x*outerT,y:point.y+d.y*outerT,z:point.z+d.z*outerT};
+    const innerHit={x:point.x+d.x*innerT,y:point.y+d.y*innerT,z:point.z+d.z*innerT};
+    const hitSide=(hit.x-w.x)*t.x+(hit.z-w.z)*t.z;
+    const innerSide=(innerHit.x-w.x)*t.x+(innerHit.z-w.z)*t.z;
+    if(Math.abs(hitSide)<=w.width/2+EPS&&Math.abs(innerSide)<=w.width/2+EPS&&hit.y>=bottom-EPS&&hit.y<=top+EPS&&innerHit.y>=bottom-EPS&&innerHit.y<=top+EPS){
+     const advance=.02/normalDot;
+     const origin={x:hit.x+d.x*advance,y:hit.y+d.y*advance,z:hit.z+d.z*advance};
+     lit=!firstBlocker(origin,d,obstacles);
+    }
+   }
+   if(lit)litCount++;
+   cells.push({column,row,lateral,depth:inset,lit});
+  }
+  return {width,depth,columns,rows,cellWidth,cellDepth,cells,litCount,litArea:litCount*cellWidth*cellDepth,sampleArea:width*depth,
+   label:'선택 창 앞 가정 바닥 영역의 직사광 표본 · 실제 방 형태·조도 아님'};
+ }
  const clock=m=>`${String(Math.floor(m/60)).padStart(2,'0')}:${String(Math.round(m%60)).padStart(2,'0')}`;
  function intervals(samples,key){
   const out=[];
@@ -156,7 +205,7 @@
   const dates=[{key:'spring',label:'봄 대표일',year,month:3,day:20},{key:'summer',label:'여름 대표일',year,month:6,day:21},{key:'autumn',label:'가을 대표일',year,month:9,day:23},{key:'winter',label:'겨울 대표일',year,month:12,day:22}];
   return dates.map(date=>({key:date.key,label:date.label,...assessWindow({...options,date})}));
  }
- const api=Object.freeze({defaults,sunPosition,windowGeometry,apertureRay,firstBlocker,assessWindow,assessSeasons});
+ const api=Object.freeze({defaults,sunPosition,windowGeometry,apertureRay,firstBlocker,assessMoment,sampleFloorPatch,assessWindow,assessSeasons});
  root.SUNLIGHT=api;
  if(typeof module!=='undefined'&&module.exports)module.exports=api;
 })(globalThis);

@@ -7,6 +7,7 @@ const FH = 2.9, BASE = 4;
 // Glass-plane setback is fixed by the user's comparison brief. Opening sizes
 // and wall returns remain explicit assumptions until window schedules exist.
 const VIEW_SETBACK = 1;
+const compactUI=()=>window.innerWidth<=820||(window.innerWidth<=1000&&window.matchMedia('(pointer: coarse)').matches);
 const opening = {width:2.4,sill:.6,top:2.2,wallDepth:.2};
 // Official 1400x820 expanded-plan opening symbols, checked 2026-10-23.
 // Pixel lengths include frames. Metres use an ASSUMED model scale, not a
@@ -26,6 +27,8 @@ const seasons = [
  {key:'autumn',name:'가을',month:9,day:23}, {key:'winter',name:'겨울',month:12,day:22}
 ];
 let solarSeason='winter',solarMinute=750,analysisKey='',windowRecess;
+let latestStudy=null,solarPlaying=false,solarTick=0,solarDisc,solarDirection=null;
+let activeOverlay=null;
 const rows = [
  [101,-226.4,56.6,44], [102,-291.2,15.3,43],
  [103,-245.8,-50.5,48], [104,-186.6,-10.6,48],
@@ -178,8 +181,9 @@ function readViewLink(hash=window.location?.hash||''){
  if(!u||!unitWindows[u.type]?.some(w=>w.id===viewWindow))return null;
  return {building,floor,slot:unitSlot(u),window:viewWindow,mode:'window',eye:1.6,fov:70};
 }
-function currentViewHash(){return `#building=${state.building}&floor=${state.floor}&line=${selectedChoice().units[0].line}&window=${state.window}&setback=1`;}
-function applyViewLink(){const s=readViewLink();if(s){setSelection(s);if(new URLSearchParams(window.location.hash.slice(1)).get('plan')==='1')$('planDialog').showModal();}return !!s;}
+function currentViewHash(){return `#building=${state.building}&floor=${state.floor}&line=${selectedChoice().units[0].line}&window=${state.window}&setback=1&season=${solarSeason}&time=${solarMinute}`;}
+function readSolarLink(){const p=new URLSearchParams(window.location?.hash?.slice(1)||'');if(seasons.some(s=>s.key===p.get('season')))solarSeason=p.get('season');if(/^\d+$/.test(p.get('time')||''))solarMinute=clamp(Number(p.get('time')),300,1200);}
+function applyViewLink(){const s=readViewLink();if(s){readSolarLink();setSelection(s);updateSolarLighting();if(new URLSearchParams(window.location.hash.slice(1)).get('plan')==='1')$('planDialog').showModal();}return !!s;}
 function facadeAnchor(w=selectedWindow(),b=selectedBuilding()) {
  const vx=Math.sin(w.bearing*DEG),vz=-Math.cos(w.bearing*DEG);let best=null;
  for(let i=0;i<footprint.length;i++){
@@ -258,10 +262,103 @@ const durationLabel=n=>n?`${Math.floor(n/60)}시간 ${n%60}분`:'0분';
 function updateSolarLighting(){
  if(!sun)return;const s=seasons.find(s=>s.key===solarSeason);
  const p=SUNLIGHT.sunPosition({year:2026,month:s.month,day:s.day,hour:Math.floor(solarMinute/60),minute:solarMinute%60});
- sun.position.set(-150+p.direction.x*1000,Math.max(-100,p.direction.y*1000),p.direction.z*1000);sun.target.position.set(-150,0,0);
- sun.intensity=p.elevation>0?(state.day===2?.12:1.3):0;
+ solarDirection=p.direction;
+ sun.position.set(-150+p.direction.x*1000,p.direction.y*1000,p.direction.z*1000);sun.target.position.set(-150,0,0);
+ // One clock drives both visual shadows and the geometric direct-sun study.
+ // Artistic sky/brightness is illustrative, never lux or irradiance output.
+ const daylight=clamp((p.elevation+5)/20,0,1),warm=clamp(1-p.elevation/18,0,1);
+ sun.intensity=p.elevation>0?1.8*clamp(p.elevation/8,0,1):0;
+ sun.color.copy(new THREE.Color('#fff8e6').lerp(new THREE.Color('#ffb96c'),warm));
+ ambient.intensity=.17+daylight*.46;
+ ambient.color.set('#c5dff3');
+ const top=new THREE.Color('#172e47').lerp(new THREE.Color('#77b6d9'),daylight);
+ const bottom=new THREE.Color('#596e86').lerp(new THREE.Color('#d7e7e8'),daylight);
+ if(p.elevation>-5&&p.elevation<12)bottom.lerp(new THREE.Color('#efb78c'),warm*.4);
+ sky.material.uniforms.topColor.value.copy(top);sky.material.uniforms.bottomColor.value.copy(bottom);
+ scene.fog.color.copy(bottom);renderer.setClearColor(bottom);
+ groundMaterial.color.set('#bcc6ac').convertSRGBToLinear();
+ facadeMaterial.emissive.set('#000000');facadeMaterial.emissiveIntensity=0;
+ if(solarDisc){solarDisc.visible=p.elevation>0;solarDisc.material.color.copy(sun.color);}
  $('solarTimeValue').textContent=`${minuteLabel(solarMinute)} KST · 태양 고도 ${Math.round(p.elevation)}°`;
- $('solarTime').value=solarMinute;$('solarSeason').value=solarSeason;dirty=true;
+ $('solarTime').value=solarMinute;$('solarSeason').value=solarSeason;
+ $('dayToggle').textContent='☀ 일조 보기';
+ renderSolarExperience();dirty=true;
+}
+function setSolarTime(minute){solarMinute=clamp(Math.round(Number(minute)/5)*5,300,1200);updateSolarLighting();}
+function setSolarSeason(key){if(!seasons.some(s=>s.key===key))return;solarSeason=key;analysisKey='';updateSunlightStudy();updateSolarLighting();}
+function stopSolarPlayback(){solarPlaying=false;solarTick=0;$('solarPlay').textContent='▶ 하루 재생';$('solarPlay').setAttribute('aria-pressed','false');}
+function goToSunlitTime(){
+ if(!latestStudy||latestStudy.unreliable)return;
+ const current=latestStudy.results.find(r=>r.key===solarSeason);
+ const intervals=current.intervals.length?current.intervals:current.exteriorIntervals;
+ const longest=[...intervals].sort((a,b)=>b.minutes-a.minutes)[0];
+ if(longest){
+  const key=current.intervals.length?'point':'exterior',middle=(longest.startMinute+longest.endMinute)/2;
+  const sample=current.samples.filter(s=>s[key]&&s.minute>=longest.startMinute&&s.minute<longest.endMinute).sort((a,b)=>Math.abs(a.minute-middle)-Math.abs(b.minute-middle))[0];
+  if(sample){stopSolarPlayback();setSolarTime(sample.minute);}
+ }
+}
+function setOverlay(next){
+ activeOverlay=next;
+ const viewer=$('viewer');
+ for(const [name,cls] of [['solar','solar-open'],['surroundings','show-surroundings'],['tools','view-tools-open'],['unit','unit-open']])viewer.classList.toggle(cls,next===name);
+ $('solarPanel').hidden=next!=='solar';
+ $('controls').classList.toggle('collapsed',next!=='unit');
+ for(const [id,name] of [['solarToggle','solar'],['solarSummary','solar'],['surroundingsToggle','surroundings'],['viewOptionsToggle','tools'],['mobileUnitToggle','unit'],['panelToggle','unit']])$(id).setAttribute('aria-expanded',String(next===name));
+ if(next!=='solar')stopSolarPlayback();else{updateSunlightStudy();renderSolarExperience();}
+ dirty=true;
+}
+function toggleOverlay(name){setOverlay(activeOverlay===name?null:name);}
+function renderSolarTimeline(){
+ if(!latestStudy)return;
+ const current=latestStudy.results.find(r=>r.key===solarSeason),unreliable=latestStudy.unreliable;
+ const bands=[['창면','exterior'],['실내 1m','point']];
+ $('solarTimeline').innerHTML=bands.map(([label,key])=>`<div class="solar-track-row"><span>${label}</span><div class="solar-track" aria-label="${label} 직사광 시간띠${unreliable?' 판단 보류':''}">${current.samples.filter(s=>s.startMinute>=300&&s.startMinute<1200).map(s=>`<i class="${unreliable?'hold':s[key]?'lit':s.elevation<=0?'night':'shade'}" title="${s.time} ${unreliable?'판단 보류':s[key]?'직사광':'직사광 없음'}"></i>`).join('')}<b class="solar-time-cursor" style="left:${100*(solarMinute-300)/900}%"></b></div></div>`).join('')+'<div class="solar-track-axis"><span>05시</span><span>12:30</span><span>20시</span></div>';
+ $('solarTimeline').setAttribute('aria-label',unreliable?'창 위치 오차로 일조 시간띠 판단 보류':`${seasons.find(s=>s.key===solarSeason).name} 하루 직사광: 창면 ${durationLabel(current.exteriorSunMinutes)}, 실내 1m 눈높이 ${durationLabel(current.pointSunMinutes)}`);
+}
+function drawSolarFloor(moment,unreliable){
+ const canvas=$('solarFloorMap'),ctx=canvas.getContext('2d');if(!ctx?.clearRect)return;
+ const W=canvas.width,H=canvas.height,left=34,top=16,plotW=W-68,plotH=H-34;
+ ctx.clearRect(0,0,W,H);ctx.fillStyle='#e7eee9';ctx.fillRect(left,top,plotW,plotH);
+ const win=windowGeometry();
+ if(!unreliable){
+  const patch=SUNLIGHT.sampleFloorPatch({window:win,sun:moment.sun,obstacles:studyObstacles(),columns:24,rows:20});
+  ctx.fillStyle='#f3bf42';for(const cell of patch.cells)if(cell.lit)ctx.fillRect(left+cell.column/patch.columns*plotW,top+cell.row/patch.rows*plotH,plotW/patch.columns+.4,plotH/patch.rows+.4);
+  canvas.dataset.litCells=patch.litCount;
+  canvas.setAttribute('aria-label',`선택 창 앞 바닥 4m 가정 영역. ${patch.litCount?'노란 영역에 직사광':'현재 시각의 표본에 직사광 없음'}. 실제 거실 평면과 밝기가 아닙니다.`);
+ }else{canvas.dataset.litCells='';canvas.setAttribute('aria-label','창 위치 오차로 바닥 직사광 표시 보류');}
+ ctx.strokeStyle='#bccbc3';ctx.lineWidth=.5;
+ for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(left+plotW*i/4,top);ctx.lineTo(left+plotW*i/4,top+plotH);ctx.moveTo(left,top+plotH*i/4);ctx.lineTo(left+plotW,top+plotH*i/4);ctx.stroke();}
+ const glassWidth=Math.min(win.width/4,1)*plotW;
+ ctx.strokeStyle='#2c8e91';ctx.lineWidth=4;ctx.beginPath();ctx.moveTo(W/2-glassWidth/2,top);ctx.lineTo(W/2+glassWidth/2,top);ctx.stroke();
+ ctx.font='10px sans-serif';ctx.textAlign='center';ctx.fillStyle='#284943';ctx.fillText('선택 창',W/2,10);ctx.fillText('4m',W/2,H-3);
+ ctx.beginPath();ctx.arc(W/2,top+plotH/4,3,0,Math.PI*2);ctx.fillStyle='#17443e';ctx.fill();ctx.textAlign='left';ctx.fillText('1m',W/2+7,top+plotH/4+3);
+ if(unreliable){ctx.fillStyle='#fff5e6e8';ctx.fillRect(left,top,plotW,plotH);ctx.textAlign='center';ctx.fillStyle='#83572e';ctx.fillText('창 위치 오차 · 판단 보류',W/2,top+plotH/2);}
+}
+function renderSolarExperience(){
+ if(!scene||!latestStudy)return;
+ const s=seasons.find(s=>s.key===solarSeason),current=latestStudy.results.find(r=>r.key===solarSeason);
+ const m=SUNLIGHT.assessMoment({date:{year:2026,month:s.month,day:s.day},hour:Math.floor(solarMinute/60),minute:solarMinute%60,window:windowGeometry(),obstacles:studyObstacles()});
+ const hold=latestStudy.unreliable;
+ const status=hold?'창 위치 확인 필요':m.point?'실내 1m에 직사광':m.exterior?'창면에 직사광':m.sun.elevation<=0?'일출 전·일몰 후':m.front?'건물에 가림':'햇빛이 창 뒤쪽';
+ $('solarSummary').textContent=`☀ ${s.name} ${minuteLabel(solarMinute)} · ${status}`;
+ $('solarSummary').dataset.sunState=hold?'hold':m.point?'direct':m.exterior?'window':'shade';
+ $('solarQuickTime').value=solarMinute;$('solarQuickTime').setAttribute('aria-valuetext',`${s.name} ${minuteLabel(solarMinute)} ${status}`);
+ $('solarQuickTimeValue').textContent=`${s.name} ${s.month}/${s.day} · ${minuteLabel(solarMinute)}`;
+ $('solarNow').textContent=status;$('solarNow').dataset.sunState=$('solarSummary').dataset.sunState;
+ $('solarBestTime').disabled=hold||!(current.pointSunMinutes||current.exteriorSunMinutes);
+ $('solarBestTime').textContent=hold?'창 위치 확인 필요':current.pointSunMinutes?'실내 직사광 시각 ↗':current.exteriorSunMinutes?'창면 직사광 시각 ↗':'이 계절 직사광 없음';
+ $('solarTotals').textContent=hold?'일조 합계 판단 보류':`대표일 합계 · 창면 ${durationLabel(current.exteriorSunMinutes)} / 실내 1m ${durationLabel(current.pointSunMinutes)}`;
+ const reasons={'above-window':'눈높이로 오는 빛은 창 위쪽에 걸립니다. 바닥 그림도 확인하세요.','beside-window':'눈높이로 오는 빛은 창 옆 벽에 걸립니다.','inner-jamb':'눈높이로 오는 빛은 창의 벽 깊이에 걸립니다.','below-window':'눈높이로 오는 빛은 창턱에 걸립니다.'};
+ const reason=hold?'공통 외벽과 창 좌표가 맞지 않아 수치와 바닥 표시를 보류합니다.':m.point?'선택 창에서 안쪽 1m, 현재 눈높이 한 점에 햇빛이 닿습니다.':m.blocker?`${m.blocker.name}이 실내 점으로 오는 직사광을 가립니다.`:m.exteriorBlocker&&!m.exterior?`${m.exteriorBlocker.name}이 창면 직사광을 가립니다.`:reasons[m.reason]||'직사광이 없다는 뜻이며 방 전체가 어둡다는 뜻은 아닙니다.';
+ $('solarDetail').textContent=`태양 ${compass(m.sun.azimuth)} ${Math.round(m.sun.azimuth)}° · 고도 ${Math.round(m.sun.elevation)}°. ${reason}`;
+ document.querySelectorAll('[data-solar-season]').forEach(b=>{b.classList.toggle('active',b.dataset.solarSeason===solarSeason);b.setAttribute('aria-pressed',String(b.dataset.solarSeason===solarSeason));});
+ $('scene').dataset.solarSeason=solarSeason;$('scene').dataset.solarMinute=solarMinute;$('scene').dataset.solarStatus=status;
+ if(activeOverlay==='solar'){
+  renderSolarTimeline();drawSolarFloor(m,hold);
+  $('solarNow').title=hold?'판단 보류':`하루 합계: 창면 ${durationLabel(current.exteriorSunMinutes)} / 실내 1m ${durationLabel(current.pointSunMinutes)}`;
+ }
+ $('viewLink').value=(window.location?.href||'index.html').split('#')[0]+currentViewHash();
 }
 function updateSunlightStudy(){
  if(!scene||!obstacles.length)return;
@@ -269,6 +366,7 @@ function updateSunlightStudy(){
  if(key===analysisKey)return;analysisKey=key;
  const own=selfObstruction(),unreliable=own.near||!own.inside||own.edgeMismatch||own.anchorShift>2;
  const results=SUNLIGHT.assessSeasons({window:windowGeometry(),obstacles:studyObstacles(),sensitivity:false});
+ latestStudy={results,unreliable};
  $('sunlightRows').innerHTML=results.map(r=>`<tr><th>${seasons.find(s=>s.key===r.key).name}<small>${r.date.month}/${r.date.day}</small></th><td>${unreliable?'판단 보류':durationLabel(r.exteriorSunMinutes)}</td><td>${unreliable?'판단 보류':durationLabel(r.pointSunMinutes)}</td></tr>`).join('');
  const current=results.find(r=>r.key===solarSeason),intervals=current.intervals.map(r=>`${r.start}–${r.end}`).join(', ');
  $('sunlightIntervals').textContent=unreliable?'창 위치와 공통 외벽 모형의 오차가 커 일조 수치를 표시하지 않습니다.':`${seasons.find(s=>s.key===solarSeason).name} · 실내 점 직사광: ${intervals||'대표일 표본에서 없음'}.`;
@@ -278,6 +376,7 @@ function updateSunlightStudy(){
  $('sunlightContext').textContent=`${selectedWindow().name} · 창면에서 안쪽 1m · 눈높이 ${state.eye.toFixed(2)}m · 개구 폭 약 ${opening.width.toFixed(2)}m (${openingSource}) / 하단 ${opening.sill.toFixed(1)}m / 상단 ${opening.top.toFixed(1)}m / 벽 깊이 ${opening.wallDepth.toFixed(2)}m 가정`;
  $('viewStatus').classList.toggle('geometry-hold',state.mode==='window'&&unreliable);
  if(state.mode==='window')$('viewStatus').textContent=unreliable?'창·외벽 불일치 · 실제 조망 판단 보류':'창 안쪽 1m';
+ renderSolarExperience();
 }
 function setSelection(change, resetDirection=true) {
  const previousType=state.type,previousWindow=selectedWindow();
@@ -315,7 +414,7 @@ function renderControls() {
  });
  $('penthouseLines').hidden=!b.choices.some(c=>c.key[0]==='p');
  $('unitTitle').innerHTML=`${b.id}동 <span>${unitNumber()}호</span>`;
- $('unitCaption').textContent=`${state.type} · ${state.floor}층 · ${b.id===109 && state.type==='84A' && state.floor===33?'당첨 세대':'비교 세대'}`;
+ $('unitCaption').textContent=`${state.type} · ${state.floor}층 · ${b.id===109 && state.type==='84A' && state.floor===33?'기준 세대':'비교 세대'}`;
  $('floor').min=0;$('floor').max=floors.length-1;$('floor').value=floors.indexOf(state.floor);$('floor').setAttribute('aria-valuetext',`${state.floor}층`);
  $('floorValue').innerHTML=`${state.floor}<span>층</span>`; $('floorMin').textContent=`${floors[0]}층`;$('floorMax').textContent=`${floors.at(-1)}층`;
  $('heightNote').textContent=`지상 높이 약 ${eyeHeight().toFixed(1)}m`;
@@ -325,7 +424,7 @@ function renderControls() {
  $('windows').replaceChildren(); $('planHotspots').replaceChildren();$('largePlanHotspots').replaceChildren();
  unitWindows[state.type].forEach(win=>{
   const button=document.createElement('button');button.innerHTML=`<span class="number">${win.id}</span><span>${win.name}</span>`;
-  button.className=win.id===w.id?'active':'';button.setAttribute('aria-pressed',String(win.id===w.id));button.onclick=()=>{setSelection({window:win.id,mode:'window'});updateModeUI();};$('windows').appendChild(button);
+  button.className=win.id===w.id?'active':'';button.setAttribute('aria-pressed',String(win.id===w.id));button.onclick=()=>{setSelection({window:win.id,mode:'window'});updateModeUI();if(compactUI())setOverlay(null);};$('windows').appendChild(button);
   if(win.hot){for(const target of ['planHotspots','largePlanHotspots']){const h=document.createElement('button');h.textContent=win.id;h.className=`hotspot ${win.id===w.id?'active':''}`;const size=SOURCE.sizes[planKey()];h.style.left=`${100*win.hot[0]/size[0]}%`;h.style.top=`${100*win.hot[1]/size[1]}%`;h.title=`${win.id}. ${win.name} · ${compass(win.bearing)}`;h.setAttribute('aria-label',win.name+'에서 보기');h.setAttribute('aria-pressed',String(win.id===w.id));h.onclick=()=>{button.onclick();if(target==='largePlanHotspots')$('planDialog').close();};$(target).appendChild(h);}}
  });
  $('planImage').src=SOURCE.images[planKey()];$('planImage').alt=`${state.type} 확장형 평면도`;
@@ -338,10 +437,11 @@ function renderControls() {
  const panes={'84A:3':'좁은 유리 왼쪽 · 넓은 유리 오른쪽','84D:1':'좁은 유리 왼쪽 · 넓은 유리 오른쪽','84D:2':'넓은 유리 왼쪽 · 좁은 유리 오른쪽'}[`${state.type}:${state.window}`];
  $('modelhousePaneNote').textContent=panes?`모델하우스 관찰: 실내에서 창을 향해 볼 때 ${panes}. 세부 분할 비율과 두께는 미확정이어서 3D에는 창틀을 임의로 그리지 않았습니다.`:'이 창의 창틀 분할·유리별 좌우는 미확정입니다. 다른 창의 분할을 복제하지 않습니다.';
  const living=unitWindows[state.type].filter(win=>win.name.startsWith('거실'));
- $('livingWindows').replaceChildren(...living.map(win=>{const a=document.createElement('a');a.className=win.id===w.id?'active':'';a.textContent=win.name;a.href=`#building=${state.building}&floor=${state.floor}&line=${selectedChoice().units[0].line}&window=${win.id}&setback=1`;a.onclick=e=>{e.preventDefault();setSelection({window:win.id,mode:'window'});};return a;}));
+ $('livingWindows').replaceChildren(...living.map(win=>{const a=document.createElement('a');a.className=win.id===w.id?'active':'';a.textContent=win.name;a.href=`#building=${state.building}&floor=${state.floor}&line=${selectedChoice().units[0].line}&window=${win.id}&setback=1`;a.onclick=e=>{e.preventDefault();setSelection({window:win.id,mode:'window'});if(compactUI())setOverlay(null);};return a;}));
  $('livingWindowNote').textContent=/^84[A-F]$/.test(state.type)?'공식 평면에서 구분한 거실 두 방향입니다. 주방·식당 창은 아래 전체 목록에서 별도 선택합니다. 두 방향 모두 확인하세요.':'거실로 표시된 시점 모음입니다. 좌표·창호는 도면 기반 추정입니다.';
  $('viewLink').value=(window.location?.href||'index.html').split('#')[0]+currentViewHash();
  $('viewWindow').textContent=`${b.id}동 · ${w.name}`;
+ $('mobileUnitSummary').textContent=`${b.id}동 ${unitNumber()}호 · ${state.type} · ${w.name}`;
  updateModeUI(); updateMini();
 }
 function updateModeUI(){
@@ -625,9 +725,7 @@ function updateMini(){
  document.querySelectorAll('.mini-building').forEach(g=>g.classList.toggle('active',Number(g.dataset.building)===state.building));
 }
 function setSky(index){
- state.day=index;const moods=[{top:'#6caccf',bottom:'#d9e8e7',fog:'#dae5df',sun:'#fff3d4',ambient:'#d9edfa',ground:'#bcc6ac',intensity:2.4},{top:'#6b91b1',bottom:'#edc4a8',fog:'#d4c5b4',sun:'#ffd7a1',ambient:'#c9cadc',ground:'#bdbaa0',intensity:1.7},{top:'#122837',bottom:'#6a8090',fog:'#71838a',sun:'#abbdd2',ambient:'#a3bbd3',ground:'#6c827b',intensity:.65}];
- const m=moods[index];sky.material.uniforms.topColor.value.set(m.top);sky.material.uniforms.bottomColor.value.set(m.bottom);scene.fog.color.set(m.fog);renderer.setClearColor(m.fog);sun.color.set(m.sun);sun.intensity=m.intensity*.53;ambient.color.set(m.ambient);ambient.intensity=index===2?.55:.8;groundMaterial.color.set(m.ground).convertSRGBToLinear();facadeMaterial.emissive.set(index===2?'#dcb56d':'#000000');facadeMaterial.emissiveIntensity=index===2?.35:0;
- $('dayToggle').textContent=['☀ 낮 색감','◒ 노을 색감','☾ 밤 색감'][index];updateSolarLighting();dirty=true;
+ state.day=0;updateSolarLighting();dirty=true;
 }
 function initScene(){
  window.CHAMPIONS_BOOT?.phase('3D 그래픽을 시작하고 있습니다');
@@ -640,6 +738,7 @@ function initScene(){
  sun.target.position.set(-150,0,0);scene.add(sun.target);sun.castShadow=true;sun.shadow.mapSize.set(mobile?1024:2048,mobile?1024:2048);Object.assign(sun.shadow.camera,{left:-520,right:520,top:520,bottom:-520,near:1,far:1700});sun.shadow.bias=-.00025;sun.shadow.normalBias=.8;
  const skyMat=new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,uniforms:{topColor:{value:new THREE.Color('#6caccf')},bottomColor:{value:new THREE.Color('#d9e8e7')}},vertexShader:'varying vec3 vWorld; void main(){vWorld=(modelMatrix*vec4(position,1.0)).xyz;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',fragmentShader:'uniform vec3 topColor; uniform vec3 bottomColor; varying vec3 vWorld; void main(){float h=normalize(vWorld+vec3(0.0,80.0,0.0)).y;gl_FragColor=vec4(mix(bottomColor,topColor,pow(max(h,0.0),0.55)),1.0);}'});
  sky=new THREE.Mesh(new THREE.SphereGeometry(35000,32,16),skyMat);scene.add(sky);
+ solarDisc=new THREE.Mesh(new THREE.SphereGeometry(100,16,12),new THREE.MeshBasicMaterial({color:'#fff6d6',fog:false}));solarDisc.name='solar-direction-disc';scene.add(solarDisc);
  groundMaterial=material('#bcc6ac');const ground=new THREE.Mesh(new THREE.PlaneGeometry(7000,7000),groundMaterial);ground.rotation.x=-Math.PI/2;ground.position.y=-.2;ground.receiveShadow=true;scene.add(ground);
  towerMaterial=material('#d3d6ca');facadeMaterial=new THREE.MeshStandardMaterial({map:facadeTexture(),roughness:.57,metalness:.1,side:THREE.DoubleSide});
  window.CHAMPIONS_BOOT?.phase('동·주변 건물·지형을 준비하고 있습니다');
@@ -667,6 +766,7 @@ function updateCamera(amount){
  }
  if(!initialized||window.matchMedia('(prefers-reduced-motion: reduce)').matches)amount=1;
  cameraNow.lerp(targetPosition,amount);lookNow.lerp(targetLook,amount);camera.position.copy(cameraNow);camera.lookAt(lookNow);camera.updateProjectionMatrix();camera.updateMatrixWorld();
+ if(solarDisc&&solarDirection)solarDisc.position.copy(camera.position).add(new THREE.Vector3(solarDirection.x,solarDirection.y,solarDirection.z).multiplyScalar(25000));
  if(windowDot)windowDot.visible=state.mode!=='window';
  const heading=state.mode==='window'?state.yaw:state.mode==='map'?0:normalize(state.orbitYaw+180);
  $('bearing').textContent=`${compass(heading)} ${Math.round(normalize(heading))}°`;$('compassTicks').style.backgroundPositionX=`${-heading*2}px`;
@@ -680,7 +780,7 @@ function updateLabels(){
   const labelPoint=l.position.clone();if(l.tower&&state.mode==='window')labelPoint.y=Math.min(labelPoint.y,camera.position.y+18);
   const projected=labelPoint.clone().project(camera);const x=(projected.x*.5+.5)*width,y=(-projected.y*.5+.5)*height;
   let visible=projected.z<1&&projected.z>-1&&x>30&&x<width-30&&y>92&&y<height-100;
-  if(width>820&&x<340)visible=false;
+  if(!compactUI()&&x<340)visible=false;
   if(state.mode==='window'&&l.text===`${state.building}동`)visible=false;
   if(visible&&state.mode==='window'){
    const vec=labelPoint.clone().sub(camera.position),distance=vec.length();raycaster.set(camera.position,vec.normalize());raycaster.far=distance-2;const hits=raycaster.intersectObjects(surfaces.filter(visibleSurface),false);if(hits.some(hit=>hit.object!==l.tower&&hit.distance<distance-3))visible=false;
@@ -691,6 +791,7 @@ function updateLabels(){
 }
 function animate(time){
  const dt=Math.min((time-lastTime)/1000,.08);lastTime=time;
+ if(solarPlaying&&activeOverlay==='solar'&&!document.hidden&&time-solarTick>=250){solarTick=time;if(solarMinute>=1200)stopSolarPlayback();else setSolarTime(solarMinute+10);}
  if(dirty||cameraNow.distanceTo(targetPosition)>.01||lookNow.distanceTo(targetLook)>.01){updateCamera(1-Math.exp(-dt*12));renderer.render(scene,camera);updateLabels();dirty=false;}
  requestAnimationFrame(animate);
 }
@@ -733,6 +834,14 @@ function saveCapture(){
  const url=c.toDataURL('image/png');$('captureImage').src=url;$('captureDownload').href=url;$('captureDownload').download=`챔피언스시티_${state.building}동_${unitNumber()}호_예상조망.png`;$('captureDialog').showModal();
 }
 function events(){
+ $('solarToggle').onclick=()=>toggleOverlay('solar');$('solarSummary').onclick=()=>toggleOverlay('solar');$('closeSolar').onclick=()=>setOverlay(null);
+ $('surroundingsToggle').onclick=()=>toggleOverlay('surroundings');$('viewOptionsToggle').onclick=()=>toggleOverlay('tools');
+ $('mobileUnitToggle').onclick=()=>toggleOverlay('unit');
+ $('solarQuickTime').oninput=e=>{stopSolarPlayback();setSolarTime(e.target.value);};
+ document.querySelectorAll('[data-solar-season]').forEach(b=>b.onclick=()=>setSolarSeason(b.dataset.solarSeason));
+ $('solarPlay').onclick=()=>{solarPlaying=!solarPlaying;solarTick=0;if(solarPlaying&&solarMinute>=1200)setSolarTime(300);$('solarPlay').textContent=solarPlaying?'Ⅱ 일시 정지':'▶ 하루 재생';$('solarPlay').setAttribute('aria-pressed',String(solarPlaying));};
+ $('solarBestTime').onclick=goToSunlitTime;
+ $('solarMore').onclick=()=>{setOverlay('unit');document.querySelector('.sunlight-study').scrollIntoView?.({block:'start',behavior:'smooth'});};
  $('modelPhotos').onclick=()=>showModelPhoto();$('closeModelPhotos').onclick=()=>$('modelPhotoDialog').close();
  $('modelPhotoScene').onclick=compareModelPhotoScene;
  $('modelPhotoZoom').onclick=()=>{const viewport=$('modelPhotoViewport'),large=!viewport.classList.contains('zoomed');viewport.classList.toggle('zoomed',large);$('modelPhotoZoom').setAttribute('aria-pressed',String(large));$('modelPhotoZoom').textContent=large?'화면에 맞추기':'크게 보기';};
@@ -766,13 +875,13 @@ function events(){
  $('planToggle').onclick=()=>{const hidden=$('floorPlan').hidden;$('floorPlan').hidden=!hidden;$('planToggle').textContent=hidden?'평면도 접기':'평면도 보기';$('planToggle').setAttribute('aria-expanded',String(hidden));};
  $('planExpand').onclick=()=>$('planDialog').showModal();$('closePlan').onclick=()=>$('planDialog').close();
  ['future','mall','hotelHeight','publicFloors'].forEach(id=>$(id).addEventListener('input',updateFuture));
- document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{state.mode=b.dataset.mode;if(state.mode==='window')centerSelectedWindow();updateModeUI();});
- $('frameToggle').onclick=()=>{$('openingDetails').open=!$('openingDetails').open;$('openingDetails').scrollIntoView?.({block:'center',behavior:'smooth'});toast('창 크기와 벽 깊이는 비교용 가정입니다. 실제 창호 치수는 확인되지 않았습니다.');};
+ document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{state.mode=b.dataset.mode;if(state.mode==='window')centerSelectedWindow();updateModeUI();if(compactUI())setOverlay(null);});
+ $('frameToggle').onclick=()=>{setOverlay('unit');$('openingDetails').open=true;$('openingDetails').scrollIntoView?.({block:'center',behavior:'smooth'});toast('창 크기와 벽 깊이는 비교용 가정입니다. 실제 창호 치수는 확인되지 않았습니다.');};
  $('centerWindow').onclick=()=>{state.mode='window';centerSelectedWindow();updateModeUI();toast('실내 1m 위치에서 선택 창의 가운데와 정면에 맞췄습니다.');};
  $('labelToggle').onclick=()=>{state.labels=!state.labels;$('labelToggle').classList.toggle('active',state.labels);$('labelToggle').setAttribute('aria-pressed',String(state.labels));dirty=true;};
- $('dayToggle').onclick=()=>{setSky((state.day+1)%3);toast('하늘 색감만 바꿉니다. 일조 계산은 선택한 계절 대표일을 따릅니다.');};
- $('solarSeason').onchange=e=>{solarSeason=e.target.value;analysisKey='';updateSolarLighting();updateSunlightStudy();};
- $('solarTime').oninput=e=>{solarMinute=clamp(Number(e.target.value),300,1200);updateSolarLighting();};
+ $('dayToggle').onclick=()=>toggleOverlay('solar');
+ $('solarSeason').onchange=e=>setSolarSeason(e.target.value);
+ $('solarTime').oninput=e=>{stopSolarPlayback();setSolarTime(e.target.value);};
  for(const id of ['openingWidth','openingSill','openingTop','wallDepth'])$(id).onchange=()=>{
   opening.width=clamp(Number($('openingWidth').value)||2.4,1,6);
   opening.sill=clamp(Number($('openingSill').value)||0,0,1.2);
@@ -786,7 +895,7 @@ function events(){
  document.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>info(b.dataset.tab));
  $('info').addEventListener('click',e=>{const r=$('info').getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)$('info').close();});
  $('fullscreen').onclick=async()=>{try{if(!document.fullscreenElement)await $('viewer').requestFullscreen();else await document.exitFullscreen();}catch{toast('브라우저의 전체 화면 기능(F11)을 이용해 주세요.');}};
- $('panelToggle').onclick=()=>{$('controls').classList.toggle('collapsed');$('panelToggle').setAttribute('aria-expanded',String(!$('controls').classList.contains('collapsed')));};
+ $('panelToggle').onclick=()=>toggleOverlay('unit');
  $('capture').onclick=saveCapture;
  $('closeCapture').onclick=()=>$('captureDialog').close();
  $('distanceDetails').onclick=()=>info('distances');
@@ -796,10 +905,13 @@ function events(){
  ['pointerup','pointercancel','lostpointercapture'].forEach(name=>$('scene').addEventListener(name,()=>{dragging=false;$('scene').classList.remove('dragging');}));
  $('scene').addEventListener('wheel',e=>{e.preventDefault();zoom(Math.sign(e.deltaY)*3);},{passive:false});
  $('scene').addEventListener('keydown',e=>{let handled=true;const orbit=state.mode==='orbit';if(e.key==='ArrowLeft'){if(orbit)state.orbitYaw+=4;else state.yaw-=4;}else if(e.key==='ArrowRight'){if(orbit)state.orbitYaw-=4;else state.yaw+=4;}else if(e.key==='ArrowUp'){if(orbit)state.orbitEl=clamp(state.orbitEl+3,12,85);else state.pitch=clamp(state.pitch+3,-78,65);}else if(e.key==='ArrowDown'){if(orbit)state.orbitEl=clamp(state.orbitEl-3,12,85);else state.pitch=clamp(state.pitch-3,-78,65);}else if(e.key==='+'||e.key==='=')zoom(-5);else if(e.key==='-')zoom(5);else handled=false;if(handled){e.preventDefault();dirty=true;}});
- window.addEventListener('resize',resize);document.addEventListener('visibilitychange',()=>{if(!document.hidden)dirty=true;});
+ window.addEventListener('resize',resize);document.addEventListener('visibilitychange',()=>{if(document.hidden)stopSolarPlayback();else dirty=true;});
+ window.visualViewport?.addEventListener('resize',resize);
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&activeOverlay)setOverlay(null);});
  $('scene').addEventListener('webglcontextlost',e=>{e.preventDefault();$('error').hidden=false;$('errorDetail').textContent='그래픽 연결이 중단되었습니다. 페이지를 새로고침해 주세요.';});
- if(window.innerWidth<=820){$('controls').classList.add('collapsed');$('panelToggle').setAttribute('aria-expanded','false');}
+ setOverlay(null);
+ if(compactUI()){state.labels=false;$('labelToggle').classList.remove('active');$('labelToggle').setAttribute('aria-pressed','false');}
 }
-try { events();window.CHAMPIONS_BOOT?.phase('동·층·창 선택을 연결하고 있습니다');buildMini();setSelection(readViewLink()||{});initScene();updateSelectionMarker();if(!applyModelPhotoLink()&&new URLSearchParams(window.location?.hash?.slice(1)||'').get('plan')==='1')$('planDialog').showModal(); }
+try { events();readSolarLink();window.CHAMPIONS_BOOT?.phase('동·층·창 선택을 연결하고 있습니다');buildMini();setSelection(readViewLink()||{});initScene();updateSelectionMarker();if(!applyModelPhotoLink()&&new URLSearchParams(window.location?.hash?.slice(1)||'').get('plan')==='1')$('planDialog').showModal(); }
 catch(error) {if(window.CHAMPIONS_BOOT)window.CHAMPIONS_BOOT.fail(error);else{$('loading').hidden=true;$('error').hidden=false;$('errorDetail').textContent=error.message;}console.error(error);}
 })();
