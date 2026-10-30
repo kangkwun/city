@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#142a31"><title>챔피언스시티 · 창가에서 보는 풍경</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main id="viewer" aria-label="챔피언스시티 예상 조망 뷰어">
+  <canvas id="scene" tabindex="0" aria-label="3D 조망. 마우스로 드래그하거나 방향키로 둘러보고, 휠 또는 더하기 빼기로 확대합니다."></canvas>
+  <div id="labels" aria-hidden="true"></div>
+  <div id="windowFrame" aria-hidden="true"><i></i><i></i><span></span></div>
+  <div class="vignette" aria-hidden="true"></div>
+  <header class="topbar">
+    <a class="brand" href="#" id="home"><span class="brand-mark">C<span>◇</span></span><span>CHAMPIONS CITY<small>창가에서 보는 풍경</small></span></a>
+    <div class="header-actions"><span class="model-badge"><i></i> 자료 기반 예상 조망</span><button id="reference" class="glass icon-text">자료·가정 <span>↗</span></button><button id="fullscreen" class="glass square" title="전체 화면" aria-label="전체 화면">⛶</button></div>
+  </header>
+  <aside class="panel glass" id="controls" aria-label="세대와 조망 선택">
+    <button id="panelToggle" class="panel-grip" aria-expanded="true"><span>세대 선택</span><span>⌃</span></button>
+    <div class="panel-body">
+      <button id="rrReview" class="model-photo-entry rr-entry">RR 후보 · 선착순 확인 순위 ↗<small>84㎡ · 양쪽 거실 창 · 신설초 · 사계절 일조</small></button>
+      <button id="purchaseReview" class="purchase-entry">사계절 일조 · 구매 검토 · 예산 ↗<small>10.30 후보 재비교 / 가격·분양 자료 10.21 확인</small></button>
+      <button id="modelPhotos" class="model-photo-entry">전시 모형 사진과 비교 ↗<small>10.30까지 받은 사진 6장 · 실제 치수 미확정</small></button>
+      <div class="eyebrow">12개 동 · 24개 타입 · 3,216세대</div><div class="unit-heading"><h1 id="unitTitle">109동 <span>3301호</span></h1><button id="reset" title="당첨 세대 109동 3301호로 돌아가기" class="reset">내 집 ↗</button></div>
+      <p class="unit-caption" id="unitCaption">84A · 33층</p>
+      <div class="select-row"><label>동<select id="building" aria-label="동 선택"></select></label><label>타입 · 호라인<select id="unitType" aria-label="타입 선택"></select></label></div>
+      <div class="line-grid" id="unitLines" aria-label="모든 호라인"></div>
+      <div class="penthouse-lines" id="penthouseLines" aria-label="49층 펜트하우스"></div>
+      <p class="mapping-note" id="unitMappingNote"></p><div class="floor-row"><label for="floor">층수</label><div class="stepper"><button id="floorDown" aria-label="한 층 아래">−</button><strong id="floorValue">33<span>층</span></strong><button id="floorUp" aria-label="한 층 위">＋</button></div></div>
+      <input id="floor" type="range" min="2" max="49" value="33" aria-label="층수 선택"><div class="range-label"><span id="floorMin">2층</span><span id="heightNote">지상 높이 약 98.4m</span><span id="floorMax">49층</span></div>
+      <div class="eye-control"><label for="eyeLevel">실내 눈높이 <output id="eyeValue">바닥에서 160cm</output></label><input id="eyeLevel" type="range" min="100" max="190" step="5" value="160"><div><button id="eyeSeated">앉아서 115cm</button><button id="eyeStanding">서서 160cm</button></div></div>
+      <div class="divider"></div>
+      <div class="section-title">어느 창에서 볼까요?<button id="planToggle" aria-expanded="false">평면도 보기</button></div>
+      <div class="living-shortcuts"><b>거실 모든 방향 확인</b><div id="livingWindows"></div><p id="livingWindowNote"></p></div><div class="view-link-copy"><input id="viewLink" type="text" readonly aria-label="현재 동 층 창 바로가기 링크"><button id="copyViewLink">링크 복사</button></div>
+      <div class="window-list" id="windows" aria-label="창 선택"></div>
+      <figure id="floorPlan" hidden><div class="plan-image"><img id="planImage" alt="선택한 타입의 공식 확장형 평면도"><div id="planHotspots"></div></div><button id="planExpand">평면도 크게 보기 ↗</button><figcaption id="planNote"></figcaption></figure>
+      <div class="window-note" id="windowNote"></div>
+      <p class="window-note" id="windowOrientation"></p><button id="centerWindow" class="center-window">창 정면 · 가운데로 맞추기</button>
+      <section class="sunlight-study" aria-label="사계절 일조와 같은 동 간섭">
+        <div class="section-title">사계절 일조 비교<span class="tiny-tag">가정 계산</span></div>
+        <p id="sunlightContext" class="mapping-note">창 안쪽 1m · 서 있는 눈높이 1.6m</p>
+        <div class="solar-controls"><label>대표 계절<select id="solarSeason"><option value="spring">봄 · 3월 20일</option><option value="summer">여름 · 6월 21일</option><option value="autumn">가을 · 9월 23일</option><option value="winter" selected>겨울 · 12월 22일</option></select></label><label for="solarTime">그림자 시각 <output id="solarTimeValue">12:30 KST</output></label><input id="solarTime" type="range" min="300" max="1200" step="10" value="750"></div>
+        <table class="sunlight-table"><thead><tr><th>2026 대표일</th><th>창면 한 점</th><th>실내 1m 점</th></tr></thead><tbody id="sunlightRows"></tbody></table>
+        <p id="sunlightIntervals" class="mapping-note"></p>
+        <p class="fineprint">10분 표본의 맑은 하늘 기하 계산입니다. 창면 수광과 실내 눈높이 한 점의 직사광은 서로 다른 지표입니다. 실내 점 0분 ≠ 방 전체 일조 0 또는 어두운 방. 지형·수목·유리 투과율·발코니·차양·날씨는 계산하지 않습니다.</p>
+        <details id="openingDetails"><summary>창 크기 근거·가정 조절</summary><p id="openingEvidence" class="fineprint"></p><p id="modelhousePaneNote" class="fineprint"></p><div class="opening-grid"><label>개구 폭 추정 (m)<input id="openingWidth" type="number" min="1" max="6" step=".001" value="2.4"></label><label>창 하단 가정 (m)<input id="openingSill" type="number" min="0" max="1.2" step=".1" value=".6"></label><label>창 상단 가정 (m)<input id="openingTop" type="number" min="1.3" max="2.4" step=".1" value="2.2"></label><label>외벽 깊이 가정 (m)<input id="wallDepth" type="number" min=".1" max=".4" step=".05" value=".2"></label></div><p class="fineprint">2026.10.23 공식 평면과 A·D 모델하우스 형태 대조. 폭은 창틀 포함 평면 기호를 모형 축척으로 환산한 추정이며 실제 유리 폭·열리는 폭과 다릅니다. 창별로 값을 바꾸면 조망과 일조를 다시 계산합니다. 프레임 분할·유리·차양은 계산에 포함되지 않았습니다. 선택한 창 하나의 국소 모형이며 거실 두 창을 동시에 보는 실내 VR은 아닙니다.</p><div class="modelhouse-links"><a href="https://championscity.co.kr/contents/sub6_Emodel_84A.php" target="_blank" rel="noopener">공식 84A 모델하우스 ↗</a><a href="https://championscity.co.kr/contents/sub6_Emodel_84D.php" target="_blank" rel="noopener">공식 84D 모델하우스 ↗</a></div></details>
+        <h3>같은 동 간섭</h3><p id="selfObstruction" class="self-result"></p><p id="geometryConfidence" class="fineprint"></p><p class="fineprint">실제 시공 공법·구조벽·슬래브·창호 상세도는 미확보입니다. 공통 동 외곽선과 가정 창으로 검토하므로 실제 사생활 간섭 또는 완전 개방 판정은 보류합니다.</p>
+      </section>
+      <div class="divider"></div>
+      <div class="section-title">주변 풍경 찾기</div>
+      <div class="landmark-row"><select id="landmark" aria-label="주변 장소 선택"></select><button id="lookLandmark">방향 보기 ↗</button></div>
+      <p class="mapping-note" id="landmarkNote">무등산과 주변 아파트의 방향을 확인하세요.</p>
+      <label class="switch-row"><span>주변 건물</span><input type="checkbox" id="neighborhood" checked><span class="switch"></span></label>
+      <label class="switch-row"><span>산·지형</span><input type="checkbox" id="terrain" checked><span class="switch"></span></label>
+      <div class="divider"></div>
+      <div class="section-title">주변 개발 비교<span class="tiny-tag">가정 모형</span></div>
+      <label class="switch-row"><span>챔피언스시티 2차 예정</span><input type="checkbox" id="phase2" checked><span class="switch"></span></label>
+      <div id="phase2Controls" class="future-sliders phase2-controls"><label for="phase2Floors">2차 높이 <output id="phase2Value">49층 · 약 146.1m</output></label><input type="range" id="phase2Floors" min="20" max="49" value="49"><label for="phase2Width">가정동 폭 <output id="phase2WidthValue">40m 가정</output></label><input type="range" id="phase2Width" min="28" max="46" step="2" value="40"><button id="lookPhase2" class="phase2-look">현재 세대에서 2차 방향 보기 ↗</button><p class="fineprint">A1블록 · 공식 안내 1,099세대 예정. 4개 가정동으로 비교하며 위치·폭·층수는 확정 설계가 아닙니다.</p></div>
+      <label class="switch-row"><span>더현대·상업시설</span><input type="checkbox" id="mall" checked><span class="switch"></span></label>
+      <label class="switch-row"><span>호텔·공공시설</span><input type="checkbox" id="future" checked><span class="switch"></span></label>
+      <div id="futureSliders" class="future-sliders"><label for="hotelHeight">호텔 높이 가정 <output id="hotelValue">80m</output></label><input type="range" id="hotelHeight" min="20" max="250" step="5" value="80"><label for="publicFloors">공공시설 <output id="publicValue">20층 가정</output></label><input type="range" id="publicFloors" min="1" max="20" value="20"></div>
+      <p class="fineprint">2차·호텔·공공시설은 가정 모형입니다. 호텔 80m 및 조절 상한 250m는 승인 높이가 아닙니다. 켜기·끄기로 비교하세요.</p>
+    </div>
+  </aside>
+  <div class="compass glass"><div id="compassTicks" aria-hidden="true"></div><i></i><span id="bearing">남남동 168°</span></div>
+  <div class="scene-status"><span class="live-dot"></span><span id="viewStatus">창가 시점</span><span class="status-sep">/</span><span id="viewWindow">거실 남쪽 창</span></div>
+  <aside class="distance-card glass" aria-label="앞 건물 거리와 높이"><div class="distance-heading"><span id="distanceMode">정면에 놓인 건물</span><button id="distanceDetails">비교표 ↗</button></div><strong id="distanceTarget">계산 중</strong><div class="distance-metrics"><span>수평거리<b id="distanceValue">—</b></span><span>옥상 높이 차<b id="heightDifference">—</b></span></div><p id="distanceNote">모형상 거리 · 실제 측량값 아님</p></aside>
+  <aside class="minimap glass" aria-label="단지 지도"><div class="map-heading"><span>1·2차와 시선</span><button id="mapReference" title="첨부 지도 열기">지도 자료 ↗</button></div><svg id="mini" viewBox="-590 -230 790 720" role="img" aria-label="1차 동 위치, 2차 가정 배치와 현재 시선 방향"></svg><div class="map-caption"><i></i> 선택한 동 <span>갈색: 2차 가정동</span></div></aside>
+  <div class="zoom-controls glass"><button id="zoomIn" aria-label="확대">＋</button><span id="fovLabel">70°</span><button id="zoomOut" aria-label="축소">−</button></div>
+  <div class="bottom-area"><div class="drag-hint" id="dragHint">↔ 드래그해서 둘러보기 <span>· 휠로 확대</span></div><nav class="view-toolbar glass" aria-label="보기 방식"><div class="segmented" id="modes"><button data-mode="window" class="active">◉ 창가</button><button data-mode="orbit">◇ 단지 전체</button><button data-mode="map">▧ 위에서</button></div><span class="tool-divider"></span><button id="frameToggle" class="tool-button" aria-pressed="false">창 치수</button><button id="labelToggle" class="tool-button active" aria-pressed="true">동 이름</button><button id="dayToggle" class="tool-button" aria-label="하늘 분위기 변경">☀ 낮</button><button id="capture" class="tool-button" title="현재 조망 이미지 저장">↓ 저장</button></nav></div>
+  <footer class="disclaimer"><span>창 안쪽 1m · 개략 조망·일조 모형 / 실측·법정 일조 분석 아님</span><span id="modelScale">층고 2.9m 가정</span></footer>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="loading"><div class="loading-mark">C ◇</div><h2 id="loadingTitle">창가의 풍경을 준비하고 있어요</h2><p id="loadingStatus" role="status" aria-live="polite">실행 코드가 시작되기를 기다리는 중입니다.</p><div id="startupHelp" class="startup-help"><b>아이폰에서 이 화면만 계속 보이나요?</b><p>카톡·파일 앱의 미리보기에서는 3D 실행이 제한될 수 있습니다. 파일을 다시 받거나 오래 기다리는 것만으로 해결되지 않을 수 있습니다.</p><p>아이폰에는 <b>게시된 웹주소를 Safari로 열어</b> 공유하는 방식을 권합니다. 지금 받은 HTML 파일의 미리보기와는 다릅니다. PC에서는 파일을 Chrome·Edge로 열 수 있습니다.</p><noscript><p class="startup-delayed"><b>현재 이 화면에서 실행 코드가 작동하지 않습니다.</b> 미리보기를 닫고 웹주소로 접속하거나 PC 브라우저에서 파일을 열어 주세요.</p></noscript></div></div>
+  <div id="error" hidden><h2>3D 화면을 열 수 없습니다.</h2><p>아이폰은 게시된 웹주소를 Safari로 열어 주세요. PC에서는 Chrome·Edge로 파일을 열 수 있습니다.</p><pre id="errorDetail"></pre><p>아래 오류 단계가 보이면 그대로 알려 주세요. 파일 미리보기의 실행 제한은 이 파일 안에서 해제할 수 없습니다.</p></div>
+</main>
+<dialog id="info"><div class="dialog-top"><div><span class="eyebrow">REFERENCE & ASSUMPTIONS</span><h2>무엇을 기준으로 만들었나요?</h2></div><button id="closeInfo" aria-label="자료 창 닫기">✕</button></div><div class="info-tabs"><button data-tab="about" class="active">모형 안내</button><button data-tab="distances">거리·높이</button><button data-tab="map">주변 지도</button><button data-tab="site">단지 배치</button><button data-tab="directions">타입 방향</button></div><div id="distanceContent" hidden><h3 id="distanceTableTitle"></h3><p>선택한 창에서 각 건물의 가장 가까운 외벽까지의 수평거리입니다. 단지 중심 간 거리나 보행거리가 아닙니다. 아래 숫자는 첨부 HTML 좌표와 개략 외곽선으로 계산한 <b>모형상 추정치</b>이며, 실측 이격거리로 보증할 수 없습니다.</p><div class="table-scroll"><table><thead><tr><th>비교 대상</th><th>가까운 외벽까지</th><th>적용 층수 / 높이</th><th>내 눈높이 대비 옥상</th></tr></thead><tbody id="distanceRows"></tbody></table></div><p class="fineprint">단지 내 동은 동호배치표 층수를 반영했습니다. 주변 단지는 공개된 최고층을 보수적으로 적용하거나 범위 내 층수를 가정했습니다. 개별 동의 층수와 옥탑 높이는 추가 확인이 필요합니다. 대지 표고 차이는 0m로 가정합니다.</p></div><div id="aboutContent" class="about-content">
+<p class="info-lead">집 앞에 어떤 건물이 놓이는지, 층과 창 방향에 따라 어떻게 달라지는지 비교하는 <b>3D 예상 조망 도구</b>입니다.</p>
+<div class="review-update"><b>2026.10.21 자료 점검:</b> 현재 공고상 통학구역은 광주서림초입니다. 서쪽 가칭 임동초는 2030년 3월 계획이 있으나 개교 시기가 확정되지 않았습니다. 공개 729세대는 무순위 공고 물량이며 실시간 선착순 재고가 아닙니다. 세대 선택 영역의 ‘구매 검토’에서 후보·가격·옵션·후불이자·세금 가정을 확인하세요. 3D 지형·주변 건물의 원자료는 2026.09.28 기준의 근사 모형을 유지합니다.</div>
+<div class="info-grid"><section><h3>자료에서 가져온 정보</h3><ul><li>사용자가 제공한 HTML의 동 좌표와 공통 건물 윤곽</li><li>공식 동호배치표의 전체 3,216세대·24개 타입과 주거층 범위</li><li>공식 확장형 평면도와 사용자가 제공한 창 방향 자료</li><li>첨부한 지도 및 공급 안내의 주변 시설 상대 위치</li></ul></section><section><h3>시뮬레이션을 위한 가정</h3><ul><li>공통 층고 2.9m, 기준 바닥 높이 4m, 실내 눈높이 기본 1.6m(1.0~1.9m 조절). 실제 지반·천장고와 차이가 있습니다.</li><li>각 동은 같은 기본 윤곽을 사용합니다. 대형 타입, 옥탑, 설비 및 외장 디테일은 단순화했습니다.</li><li>84A의 기존 8개 창은 원본 HTML을 따랐습니다. 추가 보조창과 나머지 23개 타입의 창·테라스는 공식 평면도·키맵을 대조해 위치를 추정하고 공통 외벽 모형에 맞춰 보정했습니다. 안쪽 창·테라스와 펜트하우스는 공통 윤곽과 차이가 커, 창 위치 및 자기 동에 의한 가림에 오차가 있습니다.</li><li>더현대·호텔·공공시설은 개략 위치와 가정 높이입니다. 호텔 80m가 실제 높이로 확인된 것은 아니며, 250m까지 비교할 수 있습니다. 기존 아파트도 동별 높이가 확인되지 않은 경우 단지 최고층 또는 가정값을 사용합니다. 거리·높이 표에서 적용 근거를 확인하세요.</li><li>주변 건물은 OpenStreetMap 외곽선과 층수 자료를 사용합니다. 층수가 없는 아파트는 단지 최고층 또는 15층, 일반 건물은 3층을 가정합니다. 힐스테이트광천·더리미티드는 지도 부지 안에 동 배치를 추정했습니다. 지도 누락 건물은 표현되지 않습니다.</li></ul></section></div>
+<p>무등산과 주변 산지는 Mapzen 공개 고도 자료를 125m 간격으로 단순화했습니다. 수직 높이는 과장하지 않았습니다. 천왕봉은 기준점에서 동남동 약 113°, 약 11.2km이며, 지도상 정상 고도는 약 1,187m입니다. 이 표기는 산이 실제 창에서 보인다는 보장이 아닙니다. 지형 표본의 최고점은 실제 정상보다 낮을 수 있고 수목·건물·기상은 별도입니다. 단지 주변 1.7km는 기존 모형과 맞추기 위해 평탄화하고 2.5km까지 원래 고도로 연결했습니다.</p><p>지리 좌표는 챔피언스필드 중심을 기준으로 기존 동 좌표에 맞춘 근사값입니다. 건물 간 거리와 지형 방향은 비교용이며 정밀 측량·현장 VR이 아닙니다. 학교 이름 표시는 지도상 위치이며 통학구역 배정을 뜻하지 않습니다.</p><section class="important-note"><h3>이 화면으로 확정할 수 없는 것</h3><p>실제 창에서 보이는 가림 비율, 영구 조망, 겨울 일조 시간, 정확한 이격거리와 개발 후 전망입니다. 층수를 높여도 48·49층 앞 동을 넘어 보이는 것은 아닙니다. 낮·노을·밤 버튼은 색감 표현입니다. 이와 별도로 사계절 대표일·시각에 따른 태양 방향과 가정 건물 차폐를 계산합니다. 실측 일조시간을 보증하지 않습니다.</p></section>
+<p><b>거실 창 구분:</b> 2026.10.21 공식 평면 재대조로 A 1·2번과 B·C·D·E 3번을 주방·식당 쪽으로 바로잡았습니다. 거실의 두 방향은 별도 모음에서 확인합니다. A 기본 거실 남쪽 시점은 3번입니다.</p><p><b>창무늬와 사생활 간섭:</b> 건물 외벽의 반복 창무늬는 거리감을 위한 장식이며 실제 창호 위치를 나타내지 않습니다. 창가 보기에서는 선택한 동의 임의 창무늬를 숨기고 외벽 윤곽만 표시합니다. 표시된 면이 실제 무창벽이라는 뜻도 아닙니다. 같은 동의 창과 거실이 마주 보는지 판단하려면 해당 층 전체 평면도·입면도·창호 배치를 확인해야 합니다. 현재 모형으로 사생활 간섭 여부를 확정할 수 없습니다.</p><p>21층은 첨부 동호배치표의 비주거층으로 선택에서 제외합니다. 101동은 주거 43층까지, 44층은 스카이 커뮤니티로 표현합니다. 107·108·112동 49층은 각각 2세대의 펜트하우스로 별도 선택합니다. 103·112·128타입의 세부 타입은 배치표 색상을 판독하여 각 세대에 연결했으며, 공식 타입별 세대수 합계와 대조했습니다.</p>
+<p>호텔 기본 80m와 더현대 모형 42m는 시각 비교용 입력값입니다. 공공시설 20층은 첨부 모형의 ‘20F 이하’ 표기를 참고한 상한 시나리오이며 확정 높이가 아닙니다.</p>
+<section class="important-note"><h3>2차 예정 단지를 반영한 방법</h3><p>공식 모집공고에서 <b>1차는 A2BL, 2차(가칭)는 주거복합 A1용지</b>로 확인했습니다. 이전 모형의 서쪽 예정 부지 ‘A2블록’ 표기를 바로잡았습니다. 공식 공급안내 PDF 3페이지(인쇄면 4~5쪽)는 2차를 1,099세대 예정으로 표시합니다.</p><p>서쪽 예정 부지에 4개 비교용 가정동을 넣었습니다. 부지 경계·동 위치·직사각형 외곽선은 개략값이며 최종 승인 배치를 확인한 것이 아닙니다. 49층 기본값도 확정 높이가 아닌 비교 입력값입니다. 20~49층, 동 폭 28~46m를 조절할 수 있으며 깊이는 폭의 85%, 층고는 1차와 같은 2.9m로 가정합니다. 해당 조절 범위는 법적·계획상 한계를 뜻하지 않습니다.</p><p>가정동은 3D 화면, 지도, 거리·높이 비교표와 앞 건물 판단에 함께 반영됩니다. 끄면 2차 건물만 비교에서 제외됩니다. 2차의 실제 동·호수·평면도를 확인하지 못했으므로 1차 세대 선택에 가상의 2차 세대를 추가하지 않았습니다.</p><p><a href="https://championscity.co.kr/images/공급안내.pdf?ver=6" target="_blank" rel="noopener">공식 공급안내 PDF ↗</a> · <a href="https://championscity.co.kr/images/모집공고(원본).pdf?ver=2" target="_blank" rel="noopener">공식 모집공고 원본 ↗</a></p></section>
+<p>주변 층수는 <a href="https://kbland.kr/se/c/7954" target="_blank" rel="noopener">KB부동산 평화맨션(5~14층)</a>, <a href="https://kbland.kr/se/c/19678" target="_blank" rel="noopener">한국아델리움2차(8~15층)</a>, <a href="https://home.sarangbang.com/v2/page/danji/detail.html?aptcode=104017005" target="_blank" rel="noopener">사랑방 한국아델리움1차(최고 20층)</a>, <a href="https://home.sarangbang.com/v2/page/danji/detail.html?aptcode=104017012" target="_blank" rel="noopener">임동 중흥(최고 24층)</a>을 확인했습니다. 이 모형에서는 아델리움1차 20층, 2차 15층, 중흥 24층을 각 단지의 상한 시나리오로 적용합니다. 단지별 최고층 확인은 개별 동 높이 확인과 다릅니다.</p>
+<p class="source-credit">지리 자료: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap contributors · ODbL</a> / <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank" rel="noopener">Mapzen Terrain Tiles / SRTM 등 공개 고도 원자료</a>. 2026-09-28 접근. 가공한 지도 데이터는 geography.json에 포함됩니다.</p><p class="source-credit">추가 층수 자료: <a href="https://image.ebunyang.co.kr/files/bunyang/kb_pdf/60237/uploadfile_202103124663199.pdf" target="_blank" rel="noopener">힐스테이트광천 모집공고 · 28~32층</a>, <a href="https://image.ebunyang.co.kr/files/bunyang/kb_pdf/60239/uploadfile_202012223482118.pdf" target="_blank" rel="noopener">더리미티드 모집공고 · 32~35층</a>, <a href="https://kbland.kr/se/c/37619" target="_blank" rel="noopener">농성SK뷰 · 최고 29층</a>. 개별 동 배치·높이는 모형에서 추정했습니다.</p><div class="source-links"><a href="https://championscity.co.kr/contents/sub3_84.php" target="_blank" rel="noopener">공식 타입 안내 ↗</a><a href="https://championscity.co.kr/contents/sub3_103.php" target="_blank" rel="noopener">103타입 ↗</a><a href="https://championscity.co.kr/contents/sub3_112.php" target="_blank" rel="noopener">112타입 ↗</a><a href="https://championscity.co.kr/contents/sub3_128.php" target="_blank" rel="noopener">128타입 ↗</a><a href="https://championscity.co.kr/contents/sub3_penthouse.php" target="_blank" rel="noopener">펜트하우스 ↗</a><a href="https://championscity.co.kr/contents/sub4_complex_chart.php" target="_blank" rel="noopener">공식 단지 배치 ↗</a><a href="https://championscity.co.kr/gwangju_sky/" target="_blank" rel="noopener">공식 항공 VR ↗</a></div><p class="fineprint">사용자 제공 자료를 바탕으로 제작 · 공식 분양사 / 직방 / 네이버의 서비스가 아닙니다. 실제 항공 사진은 위 공식 항공 VR 링크에서 확인할 수 있습니다.</p></div><figure id="referenceImage" hidden><img alt="사용자 제공 참고 자료"><figcaption id="referenceCaption"></figcaption></figure></dialog>
+<dialog id="captureDialog"><div class="dialog-top"><div><span class="eyebrow">SAVE YOUR VIEW</span><h2>현재 조망 이미지</h2></div><button id="closeCapture" aria-label="이미지 창 닫기">✕</button></div><img id="captureImage" alt="선택한 세대의 예상 조망 저장 이미지" style="width:100%;display:block;border-radius:10px"><div class="capture-actions"><a id="captureDownload" download>PNG 이미지 다운로드 ↓</a><p>다운로드가 제한되는 인앱 브라우저에서는 이미지를 길게 누르거나 우클릭해 저장하세요.</p></div></dialog>
+<dialog id="planDialog"><div class="dialog-top"><div><span class="eyebrow">CHOOSE YOUR WINDOW</span><h2 id="largePlanTitle">창 위치 확대 평면도</h2></div><button id="closePlan" aria-label="평면도 창 닫기">✕</button></div><p class="plan-guide">창 번호를 누르면 해당 창가 시점으로 이동합니다. 번호는 공식 도면의 창 또는 테라스 시점 위치를 가리키며, 3D 시점은 공통 외벽 모형에 맞춘 추정 위치입니다.</p><div class="plan-image"><img id="largePlanImage" alt="선택한 타입의 창 위치 확대 평면도"><div id="largePlanHotspots"></div></div><p class="fineprint">실외기실 루버와 출입문은 조망 창 선택에 포함하지 않았습니다. 84C 안방과 테라스에 면한 창은 바깥 공간 너머를 보는 시점입니다. 테라스 번호는 유리창이 아닌 야외 시점입니다.</p></dialog>
+<dialog id="purchaseDialog" aria-labelledby="purchaseTitle"><div class="dialog-top"><div><span class="eyebrow">2026.10.21 공개 자료 확인</span><h2 id="purchaseTitle">조망·학교·총예산 검토</h2></div><button id="closePurchase" aria-label="구매 검토 닫기">✕</button></div><iframe id="purchaseReport" title="84㎡ 조망 후보와 전체 예산 계산"></iframe></dialog>
+<dialog id="modelPhotoDialog" aria-labelledby="modelPhotoTitle"><div class="dialog-top"><div><span class="eyebrow">2026.10.29~30 사용자 제공 · 전시 모형</span><h2 id="modelPhotoTitle">모형 사진과 비교</h2></div><button id="closeModelPhotos" aria-label="모형 사진 닫기">✕</button></div><p class="model-photo-intro">모형 사진은 건물 형태와 배치를 대조하는 자료입니다. 촬영 원근과 축척이 확인되지 않아 실제 거리·높이·창 크기의 측정값으로 쓰지 않습니다.</p><div id="modelPhotoTabs" class="model-photo-tabs" aria-label="모형 사진 선택"></div><div class="model-photo-tools"><span id="modelPhotoCount"></span><button id="modelPhotoScene" hidden>3D에서 배치 비교 ↗</button><button id="modelPhotoZoom" aria-pressed="false">크게 보기</button></div><figure class="model-photo-figure"><div id="modelPhotoViewport"><img id="modelPhotoImage" alt="사용자 제공 전시 모형 사진"></div><figcaption id="modelPhotoCaption"></figcaption></figure><div class="model-photo-notes"><div><h3>사진에서 보이는 것</h3><p id="modelPhotoObserved"></p></div><div><h3>이번 검토에 반영</h3><p id="modelPhotoUse"></p></div><div class="model-photo-limit"><h3>추가 확인이 필요한 것</h3><p id="modelPhotoUnconfirmed"></p></div></div></dialog>
+<script>/* Small, independent startup monitor. It runs before the large scene payload.
+   No script can enable JavaScript inside a preview that disables it. */
+(function () {
+  'use strict';
+  var state = {phase: '실행 자료를 읽고 있습니다', ready: false, failed: false};
+  function node(id) { return document.getElementById(id); }
+  function phase(message) {
+    state.phase = message;
+    if (node('loadingStatus')) node('loadingStatus').textContent = message;
+  }
+  function fail(error) {
+    if (state.ready || state.failed) return;
+    state.failed = true;
+    if (node('loading')) node('loading').hidden = true;
+    if (node('error')) node('error').hidden = false;
+    if (node('errorDetail')) node('errorDetail').textContent = '멈춘 단계: ' + state.phase + '\n' + String(error && error.message || error || '실행 오류');
+  }
+  var timer = setTimeout(function () {
+    if (state.ready || state.failed) return;
+    if (node('loadingTitle')) node('loadingTitle').textContent = '화면 준비가 지연되고 있습니다';
+    if (node('loadingStatus')) node('loadingStatus').textContent = '마지막 단계: ' + state.phase;
+    if (node('startupHelp')) node('startupHelp').classList.add('startup-delayed');
+  }, 15000);
+  window.CHAMPIONS_BOOT = {
+    phase: phase,
+    fail: fail,
+    ready: function () {
+      if (state.failed) return;
+      state.ready = true;
+      clearTimeout(timer);
+      if (node('loading')) node('loading').hidden = true;
+    },
+    state: state
+  };
+  window.addEventListener('error', function (event) {
+    var target = event.target;
+    if (target && target.tagName === 'SCRIPT') fail('실행 파일을 읽지 못했습니다. 인터넷 연결과 웹주소를 확인해 주세요.');
+    else if (event.message || event.error) fail(event.error || event.message);
+  }, true);
+  window.addEventListener('unhandledrejection', function (event) { fail(event.reason); });
+  phase(state.phase);
+})();
+</script>
+<script defer src="vendor/three.min.js"></script>
+<script defer src="data.js"></script>
+<script defer src="extended-plans.js"></script>
+<script defer src="sunlight.js"></script>
+<script defer src="app.js"></script>
+</body></html>

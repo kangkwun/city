@@ -1,0 +1,15 @@
+<section id="all-living-window-audit">
+<h2>84㎡ 전체 동·호 라인 · 거실 두 창 재점검</h2>
+<p>기존의 몇 가지 사례에 한정하지 않고, 실제 84㎡가 있는 <b>57개 동·호 라인</b>의 20층 이상을 같은 기준으로 점검했습니다. 주거 세대가 없는 21층은 제외하고, 44~49층에서는 해당 동·층에 실제 있는 84㎡만 표시합니다. 107동 2호는 103A계열, 112동 5호는 103B계열이므로 84㎡ 표에 포함하지 않습니다.</p>
+<label class="candidate-floor">전체 점검표 층수<select id="auditFloor" aria-label="전체 조망 점검표 층수"></select></label>
+<p class="small">아래 9개 사례와 사계절 계산의 ‘창 확인 층수’를 바꾸면 이 표도 함께 이동합니다. 여기서만 층을 바꾸면 전체 점검표와 그 창 링크만 바뀝니다.</p>
+<div class="warning"><strong>정면이 비어 보여도 측면에 건물이 걸리면 ‘모든 창 완전 개방’ 통과로 처리하지 않습니다.</strong><p>창 안쪽 1m, 눈높이 1.6m에서 거실 창마다 정면과 창을 통과하는 수평 시야 표본을 검사했습니다. 현재 배치의 간섭, 같은 동 돌출부, 장래시설 가정의 영향을 구분합니다. 창 좌표가 불안정한 곳은 간섭 여부의 확정 판정을 보류합니다.</p><p class="small">표의 거리는 모형에서의 대략적인 시선 거리이며 측량한 동간 최소거리가 아닙니다. 2차 A1·호텔·공공시설의 배치와 높이는 가정입니다. 표본 밖의 가림, 승인도면 차이, 미래 개발 가능성이 있어 ‘미검출’을 영구 개방으로 해석하지 않습니다.</p></div>
+<p class="small">창 폭은 타입·창별 공식 평면 비율로 추정한 개구폭입니다. 실측 미터 치수나 승인 창호 일람이 확인된 것은 아니며, 높이와 벽 깊이도 가정입니다.</p>
+<div class="grid">
+<label>동으로 좁혀 보기<select id="auditBuilding" aria-label="조망 재점검 동 필터"><option value="all">모든 동</option></select></label>
+<label>타입으로 좁혀 보기<select id="auditType" aria-label="조망 재점검 타입 필터"><option value="all">모든 84타입</option><option value="84A">84A</option><option value="84B">84B</option><option value="84C">84C</option><option value="84D">84D</option><option value="84E">84E</option><option value="84F">84F</option></select></label>
+</div>
+<p id="auditSummary" aria-live="polite"></p>
+<div class="table-wrap card"><table><thead><tr><th>동 · 타입 · 호</th><th>거실 첫 번째 창</th><th>거실 두 번째 창</th><th>모든 창 개방 조건</th></tr></thead><tbody id="auditRows"></tbody></table></div>
+<p id="auditAssumptions" class="small"></p>
+</section>
